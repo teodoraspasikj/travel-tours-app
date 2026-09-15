@@ -3,12 +3,7 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: {}   # allows manually triggering the pipeline from the Actions tab
-
-env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-backend
-  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-frontend
+  workflow_dispatch: {}
 
 jobs:
   # ──────────────────────────────────────────────────────────
@@ -16,15 +11,27 @@ jobs:
   # ──────────────────────────────────────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify secrets are set
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "::error::DOCKERHUB_USERNAME secret is empty or missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "::error::DOCKERHUB_TOKEN secret is empty or missing"
+            exit 1
+          fi
+          echo "Secrets look OK (username length: ${#DOCKERHUB_USERNAME})"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
       - name: Set short SHA tag
         id: meta
-        run: echo "tag=$(echo ${GITHUB_SHA} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -42,8 +49,8 @@ jobs:
           file: ./travel-tours-backend/Dockerfile
           push: true
           tags: |
-            ${{ env.BACKEND_IMAGE }}:latest
-            ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-backend:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -54,15 +61,17 @@ jobs:
           file: ./travel-tours-frontend/Dockerfile
           push: true
           tags: |
-            ${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-frontend:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # ──────────────────────────────────────────────────────────
-  # CD: SSH into the deployment server and roll out the new images
-  # Runs only if the DEPLOY_HOST secret is configured — safe to
-  # leave in the pipeline even before you have a server.
+  # CD: SSH into the deployment server and roll out the new images.
+  # Skipped automatically until you set the ENABLE_DEPLOY repository
+  # variable to "true" (Settings → Secrets and variables → Actions →
+  # Variables tab) and add the DEPLOY_HOST / DEPLOY_USER /
+  # DEPLOY_SSH_KEY secrets.
   # ──────────────────────────────────────────────────────────
   deploy:
     needs: build-and-push
