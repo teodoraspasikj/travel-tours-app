@@ -1,18 +1,14 @@
-name: CI/CD Pipeline
+name: CI - Build and Push Docker Images
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch: {}
+    branches: [ main ]
 
 jobs:
-  # ──────────────────────────────────────────────────────────
-  # CI: build + push Docker images to DockerHub
-  # ──────────────────────────────────────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Verify secrets are set
@@ -25,16 +21,7 @@ jobs:
             echo "::error::DOCKERHUB_TOKEN secret is empty or missing"
             exit 1
           fi
-          echo "Secrets look OK (username length: ${#DOCKERHUB_USERNAME})"
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-
-      - name: Set short SHA tag
-        id: meta
-        run: echo "tag=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          echo "Secrets look OK"
 
       - name: Log in to DockerHub
         uses: docker/login-action@v3
@@ -42,52 +29,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & push backend image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
           context: ./travel-tours-backend
           file: ./travel-tours-backend/Dockerfile
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-backend:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:latest
 
-      - name: Build & push frontend image
+      - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
           context: ./travel-tours-frontend
           file: ./travel-tours-frontend/Dockerfile
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-frontend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/travel-tours-frontend:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ──────────────────────────────────────────────────────────
-  # CD: SSH into the deployment server and roll out the new images.
-  # Skipped automatically until you set the ENABLE_DEPLOY repository
-  # variable to "true" (Settings → Secrets and variables → Actions →
-  # Variables tab) and add the DEPLOY_HOST / DEPLOY_USER /
-  # DEPLOY_SSH_KEY secrets.
-  # ──────────────────────────────────────────────────────────
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: ${{ vars.ENABLE_DEPLOY == 'true' }}
-    steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            cd ~/travel-tours-solution
-            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_TOKEN }}"
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:latest
