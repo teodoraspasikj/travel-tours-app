@@ -5,23 +5,20 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Verify secrets are set
-        run: |
-          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            echo "::error::DOCKERHUB_USERNAME secret is empty or missing"
-            exit 1
-          fi
-          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "::error::DOCKERHUB_TOKEN secret is empty or missing"
-            exit 1
-          fi
-          echo "Secrets look OK"
 
       - name: Log in to DockerHub
         uses: docker/login-action@v3
@@ -29,26 +26,45 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push backend image
+      - name: Build and push backend image (${{ matrix.suffix }})
         uses: docker/build-push-action@v6
         with:
           context: ./travel-tours-backend
           file: ./travel-tours-backend/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:latest
+          platforms: ${{ matrix.platform }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:${{ matrix.suffix }}
 
-      - name: Build and push frontend image
+      - name: Build and push frontend image (${{ matrix.suffix }})
         uses: docker/build-push-action@v6
         with:
           context: ./travel-tours-frontend
           file: ./travel-tours-frontend/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:latest
+          platforms: ${{ matrix.platform }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:${{ matrix.suffix }}
+
+  merge-manifests:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest (backend)
+        run: |
+          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:amd64 \
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-backend:arm64
+
+      - name: Create and push multi-arch manifest (frontend)
+        run: |
+          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:amd64 \
+            ${{ secrets.DOCKERHUB_USERNAME }}/travel-app-frontend:arm64
