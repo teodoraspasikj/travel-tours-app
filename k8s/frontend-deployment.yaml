@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-frontend
+  namespace: travel-tours
+  labels:
+    app: travel-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-frontend
+  template:
+    metadata:
+      labels:
+        app: travel-frontend
+    spec:
+      containers:
+        - name: travel-frontend
+          image: teodoraspasikjj/travel-app-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-frontend
+  namespace: travel-tours
+  labels:
+    app: travel-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: travel-frontend
